@@ -1,4 +1,4 @@
-# Real-Time Voice Agent with Low Latency
+# Real-Time Voice Assistant with Low Latency
 
 This real-time voice agent provides a truly conversational experience for any service requiring an offline voice interface. Our current implementation focuses on achieving minimal latency, ensuring a seamless back-and-forth interaction.
 
@@ -36,4 +36,5 @@ pip install faster_whisper webrtcvad sounddevice soundfile asyncio TTS
 ```
 ```bash
 python .\main.py
+
 ```
