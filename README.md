@@ -38,3 +38,7 @@ pip install faster_whisper webrtcvad sounddevice soundfile asyncio TTS
 python .\main.py
 
 ```
+
+
+
+
