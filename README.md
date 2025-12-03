@@ -31,7 +31,7 @@ User: "i have my vehicle's engine light on what to do and how to fix it"
 Agent: "How to diagnose and fix vehicle engine light" (refined search)
 ```
 
-### 4. **Web Search & Content Extraction**
+### 4: **Web Search & Content Extraction**
 When web search is needed, the system:
 - **Searches** via Serper API (Google Search API)
 - **Classifies** links (web pages, videos, social media, forums)
@@ -45,7 +45,7 @@ Supported content types:
 - ❌ Videos (detected but skipped for text extraction)
 - ❌ Social media (filtered for quality)
 
-### 5. **Context-Aware Response Generation**
+### 5: **Context-Aware Response Generation**
 The transcribed text + gathered web context is fed into **Gemma 3 Large Language Model**, which:
 - Processes the user query with real-time web information
 - Streams responses naturally as they're generated
@@ -55,27 +55,27 @@ The transcribed text + gathered web context is fed into **Gemma 3 Large Language
   - Source links
   - Recommended resources
 
-### 6. **Streaming Text-to-Speech (Coqui-XTTSv2)**
+### 6: **Streaming Text-to-Speech (Coqui-XTTSv2)**
 As Gemma 3 streams its response:
 - Text is segmented based on punctuation (sentences)
 - Each complete sentence is passed to **Coqui-XTTSv2 TTS model**
 - Audio is generated with natural voice cloning
 
-### 7. **Concurrent Audio Streaming**
+### 7: **Concurrent Audio Streaming**
 We employ a sophisticated concurrent audio pipeline:
 - Generated audio segments are added to an **async audio queue**
 - An **audio worker** operates in parallel, continuously streaming
 - Ensures continuous audio flow while processing new sentences
 - Maintains low latency between LLM output and audio playback
 
-### 8. **Smart Voice Interruption**
+### 8: **Smart Voice Interruption**
 Critical **interrupt feature** with VAD-based detection:
 - If user begins speaking during TTS playback, system immediately recognizes it
 - Stops all ongoing processes (LLM streaming, TTS generation, audio playback)
 - Clears audio queue and promptly returns to listening mode
 - Prioritizes user input over system output
 
-### 9. **Seamless Conversation Loop**
+### 9: **Seamless Conversation Loop**
 Once the audio queue is empty:
 - System seamlessly transitions back to listening mode
 - Ready for the next interaction
@@ -180,6 +180,7 @@ Once the audio queue is empty:
 - **Product Recommendations**: "Best budget laptops for programming"
 
 ---
+
 
 
 
