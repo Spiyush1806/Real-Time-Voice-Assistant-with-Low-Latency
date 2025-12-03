@@ -7,19 +7,19 @@ This real-time **agentic voice assistant** provides a truly conversational exper
 
 ## 🎯 Core Features
 
-### 1. **Voice Activity Detection (VAD)**
+### 1:  **Voice Activity Detection (VAD)**
 We utilize an advanced VAD module to intelligently detect when a user begins speaking, activating the recording process only when needed. This ensures:
 - No background noise recording
 - Efficient resource usage
 - Natural conversation flow
 
-### 2. **Speech-to-Text (FasterWhisper)**
+### 2: **Speech-to-Text (FasterWhisper)**
 Once the user finishes speaking, recorded audio is immediately transcribed using **FasterWhisper (medium model)** running on CUDA for:
 - Fast and accurate speech-to-text conversion
 - Multi-language support
 - Low-latency processing
 
-### 3. **Agentic Query Processing**
+### 3: **Agentic Query Processing**
 The system acts as an **intelligent agent** that:
 - Analyzes user intent to determine if web search is needed
 - Refines conversational queries into optimized search terms
@@ -180,6 +180,7 @@ Once the audio queue is empty:
 - **Product Recommendations**: "Best budget laptops for programming"
 
 ---
+
 
 
 
