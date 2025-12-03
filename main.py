@@ -11,14 +11,22 @@ import nest_asyncio
 import requests
 import json
 from TTS.api import TTS
+import http.client
 import threading
-from torch.serialization import add_safe_globals, load as torch_load
-from TTS.tts.configs.xtts_config import XttsConfig
-from TTS.tts.models.xtts import XttsAudioConfig
+from dotenv import load_dotenv
+import os
+import trafilatura
+from urllib.parse import urlparse
+from typing import Dict, Any
+import logging
+import aiohttp
+from googleapiclient.errors import HttpError
+from concurrent.futures import ThreadPoolExecutor
 
-# allow both config classes for unpickling
-add_safe_globals([XttsConfig, XttsAudioConfig])
+load_dotenv()
 
+SERPER_API = "<your_api_key_here>"
+# SERPER_API = "e2988ed7d66827fe976f2bf3fbb82cf7f3621980"
 
 last_transcribe_time = time.time()
 transcribe_interval = 1 
@@ -30,24 +38,167 @@ vad = webrtcvad.Vad(2)
 vad_interval = webrtcvad.Vad(1) 
 ring_buffer = collections.deque(maxlen=int(1500/ frame_duration_ms))
 # bigger_ring_buffer = collections.deque(maxlen=int(1500 / frame_duration_ms))  # ~1.5 sec
-model = WhisperModel("medium", device="cpu")
+model = WhisperModel("medium", device="cuda", compute_type="float16")
 triggered = False
 recording = []
 ring_buffer_interupt = collections.deque(maxlen=int(1000 / frame_duration_ms)) 
 
-OLLAMA_MODEL = 'gemma3:4b'
+OLLAMA_MODEL = 'gemma3'
 OLLAMA_URL = 'http://localhost:11434/api/generate'
 
 TTS_MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
-TTS_SPEAKER_WAV = r"C:\Users\spiyu\OneDrive - Indian Institute of Science\5 semester\DS246 GEN AI\Project\en_sample.wav"
+TTS_SPEAKER_WAV = r"C:\Users\yashk\OneDrive - Indian Institute of Science\final\en_sample.wav" 
 TTS_LANGUAGE = "en"
 TTS_PLAYBACK_SPEED = 1.0
+HOST = "localhost"
+conn = http.client.HTTPSConnection("google.serper.dev")
+headers = {
+'X-API-KEY': SERPER_API,
+'Content-Type': 'application/json'
+}
 
-tts = TTS(TTS_MODEL).to("cpu")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+
+async def get_session() -> aiohttp.ClientSession:
+    global _aiohttp_session
+    if _aiohttp_session is None or _aiohttp_session.closed:
+        timeout = aiohttp.ClientTimeout(total=30)
+        _aiohttp_session = aiohttp.ClientSession(timeout=timeout)
+    return _aiohttp_session
+
+
+async def query_gemma_async(query: str) -> str:
+    """Async Gemma call using shared aiohttp session."""
+    try:
+        session = await get_session()
+        url = f"http://{HOST}:11434/api/generate"
+        payload = {"model": OLLAMA_MODEL, "prompt": query, "stream": False}
+        # simple retry loop
+        for attempt in range(3):
+            try:
+                async with session.post(url, json=payload, timeout=30) as resp:
+                    resp.raise_for_status()
+                    body = await resp.json()
+                    return body.get("response", "")
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(1 + attempt)
+    except Exception as e:
+        logger.error("Gemma query failed: %s", e)
+        return f"Error generating response: {e}"
+_executor = ThreadPoolExecutor(max_workers=6)
+_aiohttp_session: aiohttp.ClientSession | None = None
+tts = TTS(TTS_MODEL).to("cuda")
 
 interupt_value = False 
 
 print("Starting Live Transcription with Interval... Press Ctrl+C to stop.")
+
+def classify_link(url):
+    domain = urlparse(url).netloc.lower()
+
+    # Category dictionaries
+    VIDEO_SITES = ["youtube.com", "youtu.be", "vimeo.com", "dailymotion.com"]
+    SOCIAL_SITES = ["reddit.com", "facebook.com", "twitter.com", "x.com", "quora.com", "instagram.com", "linkedin.com"]
+    NEWS_SITES = ["bbc.com", "cnn.com", "nytimes.com", "theguardian.com"]
+    FORUM_SITES = ["stackexchange.com", "stackoverflow.com", "github.com", "medium.com"]
+
+    if any(s in domain for s in VIDEO_SITES):
+        return "video"
+    elif any(s in domain for s in SOCIAL_SITES):
+        return "social"
+    elif any(s in domain for s in NEWS_SITES):
+        return "news"
+    elif any(s in domain for s in FORUM_SITES):
+        return "forum"
+    else:
+        return "web"
+
+async def get_webpage_text_async(url: str) -> str | None:
+    """Run trafilatura in thread to avoid blocking event loop."""
+    loop = asyncio.get_event_loop()
+    try:
+        def fetch():
+            downloaded = trafilatura.fetch_url(url)
+            return trafilatura.extract(downloaded) if downloaded else None
+        return await loop.run_in_executor(_executor, fetch)
+    except Exception as e:
+        logger.warning("Failed to fetch %s: %s", url, e)
+        return None
+
+async def website_search_sse(query: str) -> Dict[str, Any]:
+    """Fixed async web search using Serper API"""
+    try:
+        print(f"[Search] 🔍 Starting search for: '{query}'")
+        
+        # Create a fresh connection each time
+        conn = http.client.HTTPSConnection("google.serper.dev")
+        
+        payload = json.dumps({"q": query})
+        
+        headers_local = {
+            'X-API-KEY': SERPER_API,
+            'Content-Type': 'application/json'
+        }
+        
+        # Make the request
+        conn.request("POST", "/search", payload, headers_local)
+        res = conn.getresponse()
+        
+        print(f"[Search] Response status: {res.status}")
+        
+        if res.status != 200:
+            error_body = res.read().decode('utf-8')
+            print(f"[Search] ❌ API Error ({res.status}): {error_body}")
+            return {"error": f"API returned {res.status}", "links": [], "snippets": [], "peopleAlsoAsk": []}
+        
+        data = res.read()
+        result = json.loads(data.decode('utf-8'))
+        
+        # Close connection
+        conn.close()
+        
+        # Extract results
+        organic = result.get('organic', [])
+        links = [item.get('link', '') for item in organic]
+        snippets = [item.get('snippet', '') for item in organic]
+        titles = [item.get('title', '') for item in organic]
+        peopleAlsoAsk = [
+            {
+                "question": item.get('question', ''),
+                "snippet": item.get('snippet', ''),
+                "link": item.get('link', '')
+            } 
+            for item in result.get('peopleAlsoAsk', [])
+        ]
+        
+        print(f"[Search] ✅ Found {len(links)} results")
+        print(f"[Search] First 3 links: {links[:3]}")
+        
+        return {
+            "links": links,
+            "snippets": snippets,
+            "titles": titles,
+            "peopleAlsoAsk": peopleAlsoAsk
+        }
+        
+    except HttpError as e:
+        logger.error(f"[Search] ❌ Serper API error: {e}")
+        return {"error": f"Serper API error: {e}", "links": [], "snippets": [], "peopleAlsoAsk": []}
+    except json.JSONDecodeError as e:
+        logger.error(f"[Search] ❌ JSON decode error: {e}")
+        return {"error": f"Invalid JSON response: {e}", "links": [], "snippets": [], "peopleAlsoAsk": []}
+    except Exception as e:
+        logger.error(f"[Search] ❌ Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": f"Unexpected error: {e}", "links": [], "snippets": [], "peopleAlsoAsk": []}
+
+
 
 def int16_audio(audio):
     """Convert float32 audio to int16"""
@@ -306,13 +457,107 @@ async def record_utternace():
                         interrupt_thread.start()
                         print("[Main] VAD interrupt thread started.")
                         print("[Main] Starting Ollama TTS stream...")
-                        await stream_ollama_tts(transcription_text, audio_queue)
-                        print(interupt_value, "palced after ollama stream")
+
+                        # refine the prompt such that we can do google search and get better results
+                        
+                        search_prompt = f"""You are a search query optimizer. Your task is to transform conversational user queries into precise, effective search queries that will return the most relevant results.
+
+                        USER'S ORIGINAL QUERY:
+                        "{transcription_text}"
+
+                        INSTRUCTIONS:
+                        1. Extract the core intent and key concepts from the user's query
+                        2. Remove filler words, typos, and conversational elements
+                        3. Use clear, searchable keywords and phrases
+                        4. Focus on actionable terms (e.g., "how to", "troubleshoot", "fix", "guide")
+                        5. Keep the refined query between 5-12 words
+                        6. Return ONLY the refined query - no explanation, no quotes, no extra text
+
+                        EXAMPLES:
+
+                        Input: "i ahve my vehicle's engine light on what to do and how to fix it"
+                        Output: How to diagnose and fix vehicle engine light
+
+                        Input: "my internet is not working properly and i keep getting disconencted"
+                        Output: Troubleshooting frequent internet disconnection issues
+
+                        Input: "what's the best way to learn python programming for beginners like me"
+                        Output: Best Python programming tutorials for beginners
+
+                        Input: "my laptop won't turn on after i spilled water on it yesterday"
+                        Output: Fix water damaged laptop won't power on
+
+                        Input: "can you tell me about climate change effects on polar bears"
+                        Output: Climate change impact on polar bear populations
+
+                        Input: "I need to know how much protein I should eat if I'm trying to build muscle"
+                        Output: Daily protein intake for muscle building
+
+                        Now generate the refined search query for the user's query above:"""
+
+                        refined_query = await query_gemma_async(search_prompt)
+                        print(f"[Main] Refined search query: {refined_query}")
+
+                        website_content = await website_search_sse(refined_query)
+                        print(f"[Main] Website content fetched: {website_content}")
+                        links = website_content.get("links", [])
+                        snippets = website_content.get("snippets", [])
+                        peopleAlsoAsk = website_content.get("peopleAlsoAsk", [])
+
+                        context = ""
+
+                        if links is not None:
+                            for link in links:
+                                logging.info(f"Fetching content from link: {link}")
+                                cat = classify_link(link)
+                                logging.info(f"Classified link category: {cat}")
+                                if cat == "web":
+                                    text = await get_webpage_text_async(link)
+                                    if text:
+                                        context += f"Content from webpage {link}:\n{text}\n\n"
+                                else:
+                                    continue
+                        
+                        print(context)
+
+                        format_prompt = f"""
+                        You are an expert assistant designed to help users w    ith their queries by providing detailed, accurate, and helpful responses. Your goal is to assist the user in understanding and resolving their issue effectively.
+
+                        The user asked:
+                        "{transcription_text}"
+
+                        Below is some context information from reliable websites (already summarized for you):
+                        ---
+                        {context}
+                        ---
+                        Use this context as background knowledge when crafting your response. If you refer to any facts or steps from the websites, clearly mention the corresponding source links at the end of your explanation. Also check if the website is promotional or not some websites doesn't provide any info they are just selling thier services so avoid such websites. ignore that info while answering.
+                        Your response should be clear, concise, and directly address the user's question. If the user asks for specific steps or solutions, provide them in a logical order. If you need to suggest any tools or parts, include clickable Amazon links for easy access.
+                        Your task:
+                        1. Provide a clear, conversational, and step-by-step explanation that directly answers the user's question.
+                        2. Integrate key information from the website context naturally into your response.
+                        3. Include the website links you used as references under a section titled **"Sources"**.
+                        4. At the end, include a section titled **"Recommended YouTube Tutorials"** listing the most relevant videos, with a short reason for each (why it’s useful).
+                        6. give response in markdown format for better readability and don't loose the details. let the response go beyond 100 words if needed.
+                        Output Format:
+                        -----------------
+                        **Response:**
+                        (Your helpful, natural-language explanation here.)
+
+
+                        **Sources:**
+                        // In the website sources if you have youtube links please exclude them.
+                        - [Website Name](https://example.com)
+                        - [Website Name](https://example2.com)
+                        -----------------
+                        """
                         
 
-                        await audio_queue.join()  
-                        await audio_queue.put(None) 
-                        await audio_task 
+                        await stream_ollama_tts(format_prompt, audio_queue)
+                        print(interupt_value, "placed after ollama stream")
+
+                        await audio_queue.join()
+                        await audio_queue.put(None)
+                        await audio_task
                         # interrupt.start()
                         vad_stop_event.set()
                         interrupt_thread.join(timeout=2)
