@@ -26,7 +26,6 @@ from concurrent.futures import ThreadPoolExecutor
 load_dotenv()
 
 SERPER_API = "<your_api_key_here>"
-# SERPER_API = "e2988ed7d66827fe976f2bf3fbb82cf7f3621980"
 
 last_transcribe_time = time.time()
 transcribe_interval = 1 
@@ -574,3 +573,4 @@ if __name__ == "__main__":
     import nest_asyncio
     nest_asyncio.apply()  
     asyncio.run(record_utternace()) 
+
