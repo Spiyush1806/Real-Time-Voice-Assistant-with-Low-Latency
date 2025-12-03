@@ -7,7 +7,7 @@ This real-time **agentic voice assistant** provides a truly conversational exper
 
 ## 🎯 Core Features
 
-### 1:    **Voice Activity Detection (VAD)**
+### 1:     **Voice Activity Detection (VAD)**
 We utilize an advanced VAD module to intelligently detect when a user begins speaking, activating the recording process only when needed. This ensures:
 - No background noise recording
 - Efficient resource usage
@@ -180,6 +180,7 @@ Once the audio queue is empty:
 - **Product Recommendations**: "Best budget laptops for programming"
 
 ---
+
 
 
 
