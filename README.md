@@ -1,5 +1,5 @@
 
-## DS246-Generative and Agentic AI in practice
+## DS 246 - Generative and Agentic AI in practice
 
 # Real-Time Agentic Voice Assistant with Web Search & Low Latency
 
@@ -180,4 +180,5 @@ Once the audio queue is empty:
 - **Product Recommendations**: "Best budget laptops for programming"
 
 ---
+
 
